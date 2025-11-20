@@ -1,0 +1,15 @@
+plugins {
+    id 'java'
+}
+
+group = 'ca.fineapps.util'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation project(':DynamoDBSerializer')
+    implementation 'software.amazon.awssdk:dynamodb:2.30.25'
+}

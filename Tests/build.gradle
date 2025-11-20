@@ -1,0 +1,26 @@
+plugins {
+    id 'java'
+}
+
+group = 'ca.fineapps.games'
+version = '1.0-SNAPSHOT'
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'software.amazon.awssdk:dynamodb:2.30.25'
+
+    testImplementation platform('org.junit:junit-bom:5.10.0')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+
+    testImplementation 'org.hamcrest:hamcrest:3.0'
+    testImplementation project(':DynamoDBSerializer')
+    testAnnotationProcessor project(':DynamoDBSerializerProcessor')
+}
+
+test {
+    useJUnitPlatform()
+}
