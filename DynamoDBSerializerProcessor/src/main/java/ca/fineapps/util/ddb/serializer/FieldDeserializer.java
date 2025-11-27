@@ -7,6 +7,7 @@ import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
 import javax.lang.model.element.VariableElement;
+import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
@@ -90,7 +91,20 @@ class FieldDeserializer {
                         "map.get(\"" + arg.name() + "\")." +
                                 typeMapper.findDynamoDBType(arg.type()).name().toLowerCase() + "()"
                 ) + " : " +
-                (arg.type().getKind().isPrimitive() ? "0" : "null");
+                defaultValue(arg);
+    }
+
+    private static String defaultValue(Param arg) {
+        TypeKind kind = arg.type().getKind();
+        if (kind.isPrimitive()) {
+            if (kind == TypeKind.BOOLEAN) {
+                return "false";
+            } else {
+                return "0";
+            }
+        } else {
+            return "null";
+        }
     }
 
     private String wrapMapGetter(TypeMirror type, String mapGetter) {
@@ -98,14 +112,75 @@ class FieldDeserializer {
             case "int", "java.lang.Integer" -> "Integer.parseInt(%s)";
             case "long", "java.lang.Long" -> "Long.parseLong(%s)";
             case "double", "java.lang.Double" -> "Double.parseDouble(%s)";
-            case "boolean", "java.lang.Boolean" -> "Boolean.parseBoolean(%s)";
             case "short", "java.lang.Short" -> "Short.parseShort(%s)";
             case "byte", "java.lang.Byte" -> "Byte.parseByte(%s)";
             case "float", "java.lang.Float" -> "Float.parseFloat(%s)";
+            case "char", "java.lang.Character" -> "%s.charAt(0)";
             default -> null;
         };
 
-        return template == null ? mapGetter : String.format(template, mapGetter);
+        if (typeMapper.isArray(type)) {
+            TypeMirror arrayType = typeMapper.findArrayOrCollectionType(type);
+            if (arrayType.toString().equals("byte")) {
+                template = "%s.asByteArray()";
+            } else if (typeMapper.isNumber(arrayType)) {
+                template = switch (arrayType.toString()) {
+                    case "int" -> "%s.stream().map(Integer::parseInt)\n\t\t\t\t\t\t" +
+                            ".collect(ca.fineapps.util.ddb.serializer.Collectors.toArray(int[]::new))";
+                    case "short" -> "%s.stream().map(Short::parseShort)\n\t\t\t\t\t\t" +
+                            ".collect(ca.fineapps.util.ddb.serializer.Collectors.toArray(short[]::new))";
+                    case "long" -> "%s.stream().map(Long::parseLong)\n\t\t\t\t\t\t" +
+                            ".collect(ca.fineapps.util.ddb.serializer.Collectors.toArray(long[]::new))";
+                    case "float" -> "%s.stream().map(Float::parseFloat)\n\t\t\t\t\t\t" +
+                            ".collect(ca.fineapps.util.ddb.serializer.Collectors.toArray(float[]::new))";
+                    case "double" -> "%s.stream().map(Double::parseDouble)\n\t\t\t\t\t\t" +
+                            ".collect(ca.fineapps.util.ddb.serializer.Collectors.toArray(double[]::new))";
+
+                    case "java.lang.Integer" -> "%s.stream().map(Integer::valueOf).toArray(Integer[]::new)";
+                    case "java.lang.Short" -> "%s.stream().map(Short::valueOf).toArray(Short[]::new)";
+                    case "java.lang.Long" -> "%s.stream().map(Long::valueOf).toArray(Long[]::new)";
+                    case "java.lang.Float" -> "%s.stream().map(Float::valueOf).toArray(Float[]::new)";
+                    case "java.lang.Double" -> "%s.stream().map(Double::valueOf).toArray(Double[]::new)";
+                    case "java.lang.Byte" -> "%s.stream().map(Byte::valueOf).toArray(Byte[]::new)";
+                    default -> null;
+                };
+            } else if (typeMapper.isString(arrayType)) {
+                template = "%s.toArray(String[]::new)";
+            } else if (arrayType.toString().equals("char")) {
+                template = "%s.toCharArray()";
+            } else if (arrayType.toString().equals("java.lang.Character")) {
+                template = "java.util.stream.IntStream.range(0, %s.length()).mapToObj(%s::charAt).toArray(Character[]::new)";
+            } else if (arrayType.toString().equals("boolean")) {
+                template = "%s.stream().map(AttributeValue::bool)\n\t\t\t\t\t\t" +
+                        ".collect(ca.fineapps.util.ddb.serializer.Collectors.toArray(boolean[]::new))";
+            } else if (arrayType.toString().equals("java.lang.Boolean")) {
+                template = "%s.stream().map(AttributeValue::bool).toArray(Boolean[]::new)";
+            }
+        } else if (typeMapper.isCollection(type)) {
+            TypeMirror itemType = typeMapper.findArrayOrCollectionType(type);
+            String collector = typeMapper.isSet(type) ? "collect(java.util.stream.Collectors.toSet())" : "toList()";
+            if (typeMapper.isNumber(itemType)) {
+                template = switch (itemType.toString()) {
+                    case "java.lang.Integer" -> "%s.stream().map(Integer::parseInt)." + collector;
+                    case "java.lang.Short" -> "%s.stream().map(Short::parseShort)." + collector;
+                    case "java.lang.Long" -> "%s.stream().map(Long::parseLong)." + collector;
+                    case "java.lang.Float" -> "%s.stream().map(Float::parseFloat)." + collector;
+                    case "java.lang.Double" -> "%s.stream().map(Double::parseDouble)." + collector;
+                    case "java.lang.Byte" -> "%s.stream().map(Byte::parseByte)." +  collector;
+                    default -> null;
+                };
+            } else if (typeMapper.isString(itemType)) {
+                if (typeMapper.isSet(type)) {
+                    template = "%s.stream()." + collector;
+                }
+            } else if (itemType.toString().equals("java.lang.Character")) {
+                template = "java.util.stream.IntStream.range(0, %s.length()).mapToObj(%s::charAt)." + collector;
+            } else if (itemType.toString().equals("java.lang.Boolean")) {
+                template = "%s.stream().map(AttributeValue::bool)." + collector;
+            }
+        }
+
+        return template == null ? mapGetter : String.format(template, mapGetter, mapGetter);
     }
 
     private Constructor findConstructor(Element element) {

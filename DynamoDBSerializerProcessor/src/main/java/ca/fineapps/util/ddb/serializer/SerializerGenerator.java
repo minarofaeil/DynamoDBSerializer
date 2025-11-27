@@ -45,10 +45,13 @@ public class SerializerGenerator {
 
         writer.write("import " + fullyQualifiedName + ";\n");
         writer.write("import ca.fineapps.util.ddb.serializer.Serializer;\n");
+        writer.write("import software.amazon.awssdk.core.SdkBytes;\n");
         writer.write("import software.amazon.awssdk.services.dynamodb.model.AttributeValue;\n\n");
         writer.write("import javax.annotation.processing.Generated;\n");
+        writer.write("import java.util.Arrays;\n");
         writer.write("import java.util.HashMap;\n");
         writer.write("import java.util.Map;\n");
+        writer.write("import java.util.stream.Stream;\n");
 
         writer.write("\n");
     }

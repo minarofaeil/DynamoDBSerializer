@@ -26,16 +26,76 @@ class FieldSerializer {
         List<? extends Element> enclosedElements = element.getEnclosedElements();
         for (Element enclosedElement : enclosedElements) {
             if (enclosedElement.getKind() == ElementKind.FIELD) {
-                AttributeValue.Type ddbType = typeMapper.findDynamoDBType(enclosedElement.asType());
+                TypeMirror elementType = enclosedElement.asType();
+                AttributeValue.Type ddbType = typeMapper.findDynamoDBType(elementType);
                 String getter = findGetter(element, enclosedElement);
 
                 if (getter != null && ddbType != null) {
+                    if (!elementType.getKind().isPrimitive()) {
+                        writer.write("\t\tif (object." + getter + "() != null) {\n");
+                        writer.write("\t");
+                    }
                     writer.write("\t\tmap.put(\"" + enclosedElement.getSimpleName() + "\", " +
-                            "AttributeValue.from" + ddbType + "(String.valueOf(object." + getter + "()))" +
-                            ");\n");
+                            "AttributeValue.from" + camelCase(ddbType) + "(" + wrapGetter(elementType, "object." + getter + "()") +
+                            "));\n");
+                    if (!elementType.getKind().isPrimitive()) {
+                        writer.write("\t\t}\n");
+                    }
                 }
             }
         }
+    }
+
+    private String camelCase(AttributeValue.Type ddbType) {
+        String typeName = ddbType.name();
+        return Character.toUpperCase(typeName.charAt(0)) + (typeName.length() > 1 ? typeName.substring(1).toLowerCase() : "");
+    }
+
+    private String wrapGetter(TypeMirror type, String getter) {
+        String template = switch (type.toString()) {
+            case "int", "java.lang.Integer",
+                 "long", "java.lang.Long",
+                 "double", "java.lang.Double",
+                 "short", "java.lang.Short",
+                 "byte", "java.lang.Byte",
+                 "float", "java.lang.Float",
+                 "char", "java.lang.Character" -> "String.valueOf(%s)";
+            default -> null;
+        };
+
+        if (typeMapper.isArray(type)) {
+            TypeMirror arrayType = typeMapper.findArrayOrCollectionType(type);
+            if (arrayType.toString().equals("byte")) {
+                template = "SdkBytes.fromByteArray(%s)";
+            } else if (typeMapper.isNumber(arrayType)) {
+                template = "java.util.stream.IntStream.range(0, %s.length).mapToObj(i -> %s[i]).map(String::valueOf).toList()";
+            } else if (typeMapper.isString(arrayType)) {
+                template = "Arrays.asList(%s)";
+            } else if (arrayType.toString().equals("char")) {
+                template = "new String(%s)";
+            } else  if (arrayType.toString().equals("java.lang.Character")) {
+                template = "new String(Stream.of(%s).map(String::valueOf).collect(java.util.stream.Collectors.joining()))";
+            } else if (arrayType.toString().equals("boolean")) {
+                template = "java.util.stream.IntStream.range(0, %s.length).mapToObj(i -> AttributeValue.fromBool(%s[i])).toList()";
+            } else if (arrayType.toString().equals("java.lang.Boolean")) {
+                template = "Arrays.stream(%s).map(AttributeValue::fromBool).toList()";
+            }
+        } else if (typeMapper.isCollection(type)) {
+            TypeMirror itemType = typeMapper.findArrayOrCollectionType(type);
+            if (itemType.toString().equals("byte")) {
+                template = "SdkBytes.fromByteArray(%s)";
+            } else if (typeMapper.isNumber(itemType)) {
+                template = "%s.stream().map(String::valueOf).toList()";
+            } else if (typeMapper.isString(itemType)) {
+                template = "new java.util.ArrayList<>(%s)";
+            } else if (itemType.toString().equals("java.lang.Character")) {
+                template = "%s.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining())";
+            } else if (itemType.toString().equals("java.lang.Boolean")) {
+                template = "%s.stream().map(AttributeValue::fromBool).toList()";
+            }
+        }
+
+        return template == null ? getter : String.format(template, getter, getter);
     }
 
     private String findGetter(TypeElement type, Element field) {
