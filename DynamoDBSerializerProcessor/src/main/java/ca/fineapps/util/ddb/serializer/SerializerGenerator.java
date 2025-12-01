@@ -123,14 +123,14 @@ class SerializerGenerator {
         writer.write(dependencies.stream()
                 .map(nameUtils::serializerClassName)
                 .map(className -> "\n\t\t\t" + className + " " + nameUtils.camelCase(className))
-                .collect(Collectors.joining(",\n"))
+                .collect(Collectors.joining(","))
         );
         writer.write(") {\n");
         writer.write(dependencies.stream()
                 .map(nameUtils::serializerClassName)
                 .map(nameUtils::camelCase)
                 .map(fieldName -> "\t\tthis." + fieldName + " = " + fieldName + ";\n")
-                .collect(Collectors.joining(",\n"))
+                .collect(Collectors.joining(""))
         );
         writer.write("\t}\n\n");
     }
