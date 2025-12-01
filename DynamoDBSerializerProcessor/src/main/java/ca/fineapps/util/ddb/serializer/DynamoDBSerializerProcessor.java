@@ -16,6 +16,8 @@ import javax.tools.JavaFileObject;
 import java.io.IOException;
 import java.io.Writer;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -26,7 +28,8 @@ public class DynamoDBSerializerProcessor extends AbstractProcessor {
 
     @Override
     public boolean process(Set<? extends TypeElement> annotations, RoundEnvironment roundEnv) {
-        List<TypeMirror> classesToSerialize = new ArrayList<>();
+        Types typeUtils = processingEnv.getTypeUtils();
+        Set<EquatableTypeMirror> typesToSerialize = new HashSet<>();
 
         for (TypeElement annotation : annotations) {
             Set<? extends Element> elements = roundEnv.getElementsAnnotatedWith(annotation);
@@ -39,7 +42,7 @@ public class DynamoDBSerializerProcessor extends AbstractProcessor {
                                     "When @Serializer is used on a class type, it generates a serializer " +
                                             "for the annotated type. A target type cannot be specified");
                         } else {
-                            classesToSerialize.add(element.asType());
+                            typesToSerialize.add(new EquatableTypeMirror(typeUtils, element.asType()));
                         }
                     } catch (MirroredTypeException ex) {
                         TypeMirror typeMirror = ex.getTypeMirror();
@@ -48,7 +51,7 @@ public class DynamoDBSerializerProcessor extends AbstractProcessor {
                                     "When @Serializer is used on a class type, it generates a serializer " +
                                             "for the annotated type. A target type cannot be specified");
                         } else {
-                            classesToSerialize.add(element.asType());
+                            typesToSerialize.add(new EquatableTypeMirror(typeUtils, element.asType()));
                         }
                     }
                 } else if (element.getKind() == ElementKind.INTERFACE) {
@@ -66,7 +69,7 @@ public class DynamoDBSerializerProcessor extends AbstractProcessor {
                             processingEnv.getMessager().printError(
                                     "When @Serializer is used on an interface type, a target type must be specified");
                         } else {
-                            classesToSerialize.add(typeMirror);
+                            typesToSerialize.add(new EquatableTypeMirror(typeUtils, typeMirror));
                         }
                     }
                 } else {
@@ -76,15 +79,31 @@ public class DynamoDBSerializerProcessor extends AbstractProcessor {
             }
         }
 
-        SerializerGenerator generator = new SerializerGenerator(
-                processingEnv.getTypeUtils(),
-                processingEnv.getElementUtils()
+        List<TypeMirror> typesToSerializeList = new ArrayList<>(
+                typesToSerialize.stream().map(EquatableTypeMirror::getType).toList()
         );
-        for (TypeMirror typeMirror : classesToSerialize) {
+
+        for (int i = 0; i < typesToSerializeList.size(); i++) {
+            TypeMirror typeMirror = typesToSerializeList.get(i);
+
             try {
                 JavaFileObject generatedSourceFile = generateSourceFile(typeMirror);
+
+                SerializerGenerator generator = new SerializerGenerator(
+                        typeUtils,
+                        processingEnv.getElementUtils()
+                );
+
                 try (Writer writer = generatedSourceFile.openWriter()) {
-                    writer.write(generator.generateSerializer(typeMirror));
+                    Collection<TypeMirror> dependencies = generator.generateSerializer(typeMirror, writer);
+
+                    for (TypeMirror dependency : dependencies) {
+                        EquatableTypeMirror equatableDependency = new EquatableTypeMirror(typeUtils, dependency);
+                        if (!typesToSerialize.contains(equatableDependency)) {
+                            typesToSerialize.add(equatableDependency);
+                            typesToSerializeList.add(dependency);
+                        }
+                    }
                 }
             } catch (IOException ex) {
                 processingEnv.getMessager().printError("Failed to generate source file for " + typeMirror);

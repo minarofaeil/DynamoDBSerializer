@@ -1,45 +1,54 @@
 package ca.fineapps.util.ddb.serializer;
 
-import javax.lang.model.element.Element;
 import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
-import java.io.StringWriter;
+import java.io.IOException;
+import java.io.Writer;
 import java.time.Instant;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.stream.Collectors;
 
-public class SerializerGenerator {
+class SerializerGenerator {
     private final Types typeUtils;
     private final Elements elementUtils;
+    private final NameUtils nameUtils;
 
     public SerializerGenerator(Types typeUtils, Elements elementUtils) {
         this.typeUtils = typeUtils;
         this.elementUtils = elementUtils;
+        this.nameUtils = new NameUtils(typeUtils);
     }
 
-    public String generateSerializer(TypeMirror type) {
-        StringWriter writer = new StringWriter();
+    public Collection<TypeMirror> generateSerializer(TypeMirror type, Writer writer) throws IOException {
+        Collection<TypeMirror> dependencies = new HashSet<>();
 
-        generatePackageLine(writer, type);
+        generatePackageLine(type, writer);
         generateImports(writer, type);
         generateGeneratedLine(writer);
-        generateClassNameLine(writer, type);
+        generateClassNameLine(type, writer);
 
-        generateSerializeMethod(writer, type);
-        generateDeserializeMethod(writer, type);
+        generateSerializeMethod(type, writer, dependencies);
+        generateDeserializeMethod(type, writer, dependencies);
+
+        generateFields(dependencies, writer);
+        generateConstructor(type, writer, dependencies);
+        generateCreateMethod(type, writer, dependencies);
 
         // Close class
         writer.write("}\n");
 
-        return writer.toString();
+        return dependencies;
     }
 
-    private void generatePackageLine(StringWriter writer, TypeMirror type) {
+    private void generatePackageLine(TypeMirror type, Writer writer) throws IOException {
         TypeElement element = (TypeElement) typeUtils.asElement(type);
         writer.write("package " + elementUtils.getPackageOf(element).getQualifiedName().toString() + ";\n\n");
     }
 
-    public void generateImports(StringWriter writer, TypeMirror type) {
+    public void generateImports(Writer writer, TypeMirror type) throws IOException {
         TypeElement element = (TypeElement) typeUtils.asElement(type);
         String fullyQualifiedName = element.getQualifiedName().toString();
 
@@ -56,44 +65,88 @@ public class SerializerGenerator {
         writer.write("\n");
     }
 
-    private void generateGeneratedLine(StringWriter writer) {
+    private void generateGeneratedLine(Writer writer) throws IOException {
         String generatorName = getClass().getCanonicalName();
         String date = Instant.now().toString();
 
         writer.write(String.format("@Generated(value = \"%s\", date = \"%s\")\n", generatorName, date));
     }
 
-    private void generateClassNameLine(StringWriter writer, TypeMirror type) {
-        TypeElement element = (TypeElement) typeUtils.asElement(type);
-
-        Element enclosing = element.getEnclosingElement();
-        String enclosingTypeName = enclosing instanceof TypeElement ? enclosing.getSimpleName() + "_" : "";
-        String className = enclosingTypeName + element.getSimpleName().toString() + "Serializer";
-
-        writer.write("public class " + className + " implements Serializer<" + element.getSimpleName() + "> {\n\n");
+    private void generateClassNameLine(TypeMirror type, Writer writer) throws IOException {
+        writer.write("public class " + nameUtils.serializerClassName(type) +
+                " implements Serializer<" + typeUtils.asElement(type).getSimpleName() + "> {\n\n");
     }
 
-    private void generateSerializeMethod(StringWriter writer, TypeMirror type) {
+    private void generateSerializeMethod(TypeMirror type, Writer writer, Collection<TypeMirror> dependencies) throws IOException {
         TypeElement element = (TypeElement) typeUtils.asElement(type);
 
         writer.write("\t@Override\n");
         writer.write("\tpublic Map<String, AttributeValue> serialize(" + element.getSimpleName() + " object) {\n");
         writer.write("\t\tMap<String, AttributeValue> map = new HashMap<>();\n");
         writer.write("\n");
-        new FieldSerializer(typeUtils, elementUtils).generateFieldSerialization(writer, type);
+
+        FieldSerializer serializer = new FieldSerializer(typeUtils, elementUtils, nameUtils);
+        serializer.generateFieldSerialization(type, writer, dependencies);
+
         writer.write("\n");
         writer.write("\t\treturn map;\n");
         writer.write("\t}\n");
         writer.write("\n");
     }
 
-    private void generateDeserializeMethod(StringWriter writer, TypeMirror type) {
+    private void generateDeserializeMethod(TypeMirror type, Writer writer, Collection<TypeMirror> dependencies) throws IOException {
         TypeElement element = (TypeElement) typeUtils.asElement(type);
 
         writer.write("\t@Override\n");
         writer.write("\tpublic " + element.getSimpleName() + " deserialize(Map<String, AttributeValue> map) {\n");
-        new FieldDeserializer(typeUtils, elementUtils).generateFieldDeserialization(writer, type);
+
+        FieldDeserializer deserializer = new FieldDeserializer(typeUtils, elementUtils, nameUtils);
+        deserializer.generateFieldDeserialization(type, writer, dependencies);
+
         writer.write("\t}\n");
         writer.write("\n");
+    }
+
+    private void generateFields(Collection<TypeMirror> dependencies, Writer writer) throws IOException {
+        for (TypeMirror dependency : dependencies) {
+            String serializerName = nameUtils.serializerClassName(dependency);
+            writer.write("\tprivate " + serializerName + " " + nameUtils.camelCase(serializerName) + ";\n");
+        }
+
+        if (!dependencies.isEmpty()) {
+            writer.write("\n");
+        }
+    }
+
+    private void generateConstructor(TypeMirror type, Writer writer, Collection<TypeMirror> dependencies) throws IOException {
+        writer.write("\tprotected " + nameUtils.serializerClassName(type) + "(");
+        writer.write(dependencies.stream()
+                .map(nameUtils::serializerClassName)
+                .map(className -> "\n\t\t\t" + className + " " + nameUtils.camelCase(className))
+                .collect(Collectors.joining(",\n"))
+        );
+        writer.write(") {\n");
+        writer.write(dependencies.stream()
+                .map(nameUtils::serializerClassName)
+                .map(nameUtils::camelCase)
+                .map(fieldName -> "\t\tthis." + fieldName + " = " + fieldName + ";\n")
+                .collect(Collectors.joining(",\n"))
+        );
+        writer.write("\t}\n\n");
+    }
+
+    private void generateCreateMethod(TypeMirror type, Writer writer, Collection<TypeMirror> dependencies) throws IOException {
+        writer.write("\tpublic static " + nameUtils.serializerClassName(type) + " create() {\n");
+        writer.write("\t\treturn new " + nameUtils.serializerClassName(type) + "(");
+        writer.write(dependencies.stream()
+                .map(nameUtils::serializerClassName)
+                .map(className -> "\n\t\t\t\t" + className + ".create()")
+                .collect(Collectors.joining(","))
+        );
+        if (!dependencies.isEmpty()) {
+            writer.write("\n\t\t");
+        }
+        writer.write(");\n");
+        writer.write("\t}\n");
     }
 }

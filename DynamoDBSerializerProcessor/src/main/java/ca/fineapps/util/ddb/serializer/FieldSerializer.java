@@ -8,19 +8,23 @@ import javax.lang.model.element.TypeElement;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
-import java.io.StringWriter;
+import java.io.IOException;
+import java.io.Writer;
+import java.util.Collection;
 import java.util.List;
 
 class FieldSerializer {
     private final Types typeUtils;
     private final DynamoDBTypeMapper typeMapper;
+    private final NameUtils nameUtils;
 
-    FieldSerializer(Types typeUtils, Elements elementUtils) {
+    FieldSerializer(Types typeUtils, Elements elementUtils, NameUtils nameUtils) {
         this.typeUtils = typeUtils;
-        typeMapper = new DynamoDBTypeMapper(typeUtils, elementUtils);
+        this.typeMapper = new DynamoDBTypeMapper(typeUtils, elementUtils);
+        this.nameUtils = nameUtils;
     }
 
-    void generateFieldSerialization(StringWriter writer, TypeMirror type) {
+    void generateFieldSerialization(TypeMirror type, Writer writer, Collection<TypeMirror> dependencies) throws IOException {
         TypeElement element = (TypeElement) typeUtils.asElement(type);
 
         List<? extends Element> enclosedElements = element.getEnclosedElements();
@@ -31,12 +35,17 @@ class FieldSerializer {
                 String getter = findGetter(element, enclosedElement);
 
                 if (getter != null && ddbType != null) {
+                    if (ddbType == AttributeValue.Type.M) {
+                        dependencies.add(elementType);
+                    }
+
                     if (!elementType.getKind().isPrimitive()) {
                         writer.write("\t\tif (object." + getter + "() != null) {\n");
                         writer.write("\t");
                     }
                     writer.write("\t\tmap.put(\"" + enclosedElement.getSimpleName() + "\", " +
-                            "AttributeValue.from" + camelCase(ddbType) + "(" + wrapGetter(elementType, "object." + getter + "()") +
+                            "AttributeValue.from" + camelCase(ddbType) + "(" +
+                            wrapGetter(elementType, "object." + getter + "()", dependencies) +
                             "));\n");
                     if (!elementType.getKind().isPrimitive()) {
                         writer.write("\t\t}\n");
@@ -51,7 +60,7 @@ class FieldSerializer {
         return Character.toUpperCase(typeName.charAt(0)) + (typeName.length() > 1 ? typeName.substring(1).toLowerCase() : "");
     }
 
-    private String wrapGetter(TypeMirror type, String getter) {
+    private String wrapGetter(TypeMirror type, String getter, Collection<TypeMirror> dependencies) {
         String template = switch (type.toString()) {
             case "int", "java.lang.Integer",
                  "long", "java.lang.Long",
@@ -79,6 +88,13 @@ class FieldSerializer {
                 template = "java.util.stream.IntStream.range(0, %s.length).mapToObj(i -> AttributeValue.fromBool(%s[i])).toList()";
             } else if (arrayType.toString().equals("java.lang.Boolean")) {
                 template = "Arrays.stream(%s).map(AttributeValue::fromBool).toList()";
+            } else if (typeMapper.findDynamoDBType(arrayType) == AttributeValue.Type.M) {
+                dependencies.add(arrayType);
+                template = "Arrays.stream(%s)\n" +
+                        "\t\t\t\t\t.map(" + nameUtils.camelCase(nameUtils.serializerClassName(arrayType)) + "::serialize)\n" +
+                        "\t\t\t\t\t.map(AttributeValue::fromM)\n" +
+                        "\t\t\t\t\t.toList()\n" +
+                        "\t\t\t";
             }
         } else if (typeMapper.isCollection(type)) {
             TypeMirror itemType = typeMapper.findArrayOrCollectionType(type);
@@ -92,7 +108,16 @@ class FieldSerializer {
                 template = "%s.stream().map(String::valueOf).collect(java.util.stream.Collectors.joining())";
             } else if (itemType.toString().equals("java.lang.Boolean")) {
                 template = "%s.stream().map(AttributeValue::fromBool).toList()";
+            } else if (typeMapper.findDynamoDBType(itemType) == AttributeValue.Type.M) {
+                dependencies.add(itemType);
+                template = "%s.stream()\n" +
+                        "\t\t\t\t\t.map(" + nameUtils.camelCase(nameUtils.serializerClassName(itemType)) + "::serialize)\n" +
+                        "\t\t\t\t\t.map(AttributeValue::fromM)\n" +
+                        "\t\t\t\t\t.toList()\n" +
+                        "\t\t\t";
             }
+        } else if (typeMapper.findDynamoDBType(type) == AttributeValue.Type.M) {
+            template = nameUtils.camelCase(nameUtils.serializerClassName(type)) + ".serialize(%s)";
         }
 
         return template == null ? getter : String.format(template, getter, getter);
