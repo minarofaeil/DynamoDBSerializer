@@ -14,18 +14,23 @@ import javax.lang.model.util.Types;
 import java.io.IOException;
 import java.io.Writer;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.BiFunction;
 import java.util.stream.Collectors;
 
 class FieldDeserializer {
     private final Types typeUtils;
     private final DynamoDBTypeMapper typeMapper;
     private final NameUtils nameUtils;
+    private final Map<String, BiFunction<TypeMirror, String, String>> customDeserializers;
 
     FieldDeserializer(Types typeUtils, Elements elementUtils, NameUtils nameUtils) {
         this.typeUtils = typeUtils;
         this.typeMapper = new DynamoDBTypeMapper(typeUtils, elementUtils);
         this.nameUtils = nameUtils;
+        this.customDeserializers = buildCustomDeserializers();
     }
 
     void generateFieldDeserialization(TypeMirror type, Writer writer, Collection<TypeMirror> dependencies) throws IOException {
@@ -172,7 +177,7 @@ class FieldDeserializer {
             } else if (typeMapper.findDynamoDBType(arrayType) == AttributeValue.Type.M) {
                 template = "%s.stream()\n" +
                         "\t\t\t\t\t.map(AttributeValue::m)\n" +
-                        "\t\t\t\t\t.map(" + nameUtils.camelCase(nameUtils.serializerClassName(arrayType)) + "::deserialize)\n" +
+                        "\t\t\t\t\t.map(item -> " + customDeserializer(arrayType, "item") + ")\n" +
                         "\t\t\t\t\t.toArray(" + arrayType + "[]::new)";
             }
         } else if (typeMapper.isCollection(type)) {
@@ -199,11 +204,12 @@ class FieldDeserializer {
             } else if (typeMapper.findDynamoDBType(itemType) == AttributeValue.Type.M) {
                 template = "%s.stream()\n" +
                         "\t\t\t\t\t.map(AttributeValue::m)\n" +
-                        "\t\t\t\t\t.map(" + nameUtils.camelCase(nameUtils.serializerClassName(itemType)) + "::deserialize)\n" +
+                        "\t\t\t\t\t.map(item -> " + customDeserializer(itemType, "item") + ")\n" +
                         "\t\t\t\t\t." + collector;
             }
-        } else if (typeMapper.findDynamoDBType(type) == AttributeValue.Type.M) {
-            template = nameUtils.camelCase(nameUtils.serializerClassName(type)) + ".deserialize(%s)";
+        } else if (customDeserializers.containsKey(type.toString()) ||
+                typeMapper.findDynamoDBType(type) == AttributeValue.Type.M) {
+            template = customDeserializer(type, "%s");
         }
 
         return template == null ? mapGetter : String.format(template, mapGetter, mapGetter);
@@ -247,6 +253,22 @@ class FieldDeserializer {
         }
 
         return chosen;
+    }
+
+    private Map<String, BiFunction<TypeMirror, String, String>> buildCustomDeserializers() {
+        Map<String, BiFunction<TypeMirror, String, String>> map = new HashMap<>();
+
+        map.put("java.time.Instant", (instanceType, getter) -> "java.time.Instant.ofEpochMilli(Long.valueOf(" + getter + "))");
+
+        return map;
+    }
+
+    private String customDeserializer(TypeMirror type, String getter) {
+        BiFunction<TypeMirror, String, String> serializer = customDeserializers.getOrDefault(type.toString(),
+                (aType, aGetter) ->
+                        nameUtils.camelCase(nameUtils.serializerClassName(aType)) + ".deserialize(" + aGetter + ")"
+        );
+        return serializer.apply(type, getter);
     }
 
     private record Constructor(List<Param> args) {

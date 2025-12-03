@@ -11,17 +11,22 @@ import javax.lang.model.util.Types;
 import java.io.IOException;
 import java.io.Writer;
 import java.util.Collection;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.function.BiFunction;
 
 class FieldSerializer {
     private final Types typeUtils;
     private final DynamoDBTypeMapper typeMapper;
     private final NameUtils nameUtils;
+    private final Map<String, BiFunction<TypeMirror, String, String>> customSerializers;
 
     FieldSerializer(Types typeUtils, Elements elementUtils, NameUtils nameUtils) {
         this.typeUtils = typeUtils;
         this.typeMapper = new DynamoDBTypeMapper(typeUtils, elementUtils);
         this.nameUtils = nameUtils;
+        this.customSerializers = buildCustomSerializers();
     }
 
     void generateFieldSerialization(TypeMirror type, Writer writer, Collection<TypeMirror> dependencies) throws IOException {
@@ -82,7 +87,7 @@ class FieldSerializer {
                 template = "Arrays.asList(%s)";
             } else if (arrayType.toString().equals("char")) {
                 template = "new String(%s)";
-            } else  if (arrayType.toString().equals("java.lang.Character")) {
+            } else if (arrayType.toString().equals("java.lang.Character")) {
                 template = "new String(Stream.of(%s).map(String::valueOf).collect(java.util.stream.Collectors.joining()))";
             } else if (arrayType.toString().equals("boolean")) {
                 template = "java.util.stream.IntStream.range(0, %s.length).mapToObj(i -> AttributeValue.fromBool(%s[i])).toList()";
@@ -91,7 +96,7 @@ class FieldSerializer {
             } else if (typeMapper.findDynamoDBType(arrayType) == AttributeValue.Type.M) {
                 dependencies.add(arrayType);
                 template = "Arrays.stream(%s)\n" +
-                        "\t\t\t\t\t.map(" + nameUtils.camelCase(nameUtils.serializerClassName(arrayType)) + "::serialize)\n" +
+                        "\t\t\t\t\t.map(item -> " + customSerializer(arrayType, "item") + ")\n" +
                         "\t\t\t\t\t.map(AttributeValue::fromM)\n" +
                         "\t\t\t\t\t.toList()\n" +
                         "\t\t\t";
@@ -111,13 +116,14 @@ class FieldSerializer {
             } else if (typeMapper.findDynamoDBType(itemType) == AttributeValue.Type.M) {
                 dependencies.add(itemType);
                 template = "%s.stream()\n" +
-                        "\t\t\t\t\t.map(" + nameUtils.camelCase(nameUtils.serializerClassName(itemType)) + "::serialize)\n" +
+                        "\t\t\t\t\t.map(item -> " + customSerializer(itemType, "item") + ")\n" +
                         "\t\t\t\t\t.map(AttributeValue::fromM)\n" +
                         "\t\t\t\t\t.toList()\n" +
                         "\t\t\t";
             }
-        } else if (typeMapper.findDynamoDBType(type) == AttributeValue.Type.M) {
-            template = nameUtils.camelCase(nameUtils.serializerClassName(type)) + ".serialize(%s)";
+        } else if (customSerializers.containsKey(type.toString()) ||
+                typeMapper.findDynamoDBType(type) == AttributeValue.Type.M) {
+            template = customSerializer(type, "%s");
         }
 
         return template == null ? getter : String.format(template, getter, getter);
@@ -149,5 +155,21 @@ class FieldSerializer {
         }
 
         return null;
+    }
+
+    private Map<String, BiFunction<TypeMirror, String, String>> buildCustomSerializers() {
+        Map<String, BiFunction<TypeMirror, String, String>> map = new HashMap<>();
+
+        map.put("java.time.Instant", (instanceType, getter) -> "String.valueOf(" + getter + ".toEpochMilli())");
+
+        return map;
+    }
+
+    private String customSerializer(TypeMirror type, String getter) {
+        BiFunction<TypeMirror, String, String> serializer = customSerializers.getOrDefault(type.toString(),
+                (aType, aGetter) ->
+                        nameUtils.camelCase(nameUtils.serializerClassName(aType)) + ".serialize(" + aGetter + ")"
+        );
+        return serializer.apply(type, getter);
     }
 }

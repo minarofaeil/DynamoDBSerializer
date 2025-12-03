@@ -8,15 +8,19 @@ import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Elements;
 import javax.lang.model.util.Types;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Set;
 
 class DynamoDBTypeMapper {
     private final Types typeUtils;
     private final Elements elementUtils;
+    private final Map<String, AttributeValue.Type> customMappings;
 
     public DynamoDBTypeMapper(Types typeUtils, Elements elementUtils) {
         this.typeUtils = typeUtils;
         this.elementUtils = elementUtils;
+        this.customMappings = buildCustomMappings();
     }
 
     AttributeValue.Type findDynamoDBType(TypeMirror type) {
@@ -53,7 +57,7 @@ class DynamoDBTypeMapper {
             }
         }
 
-        return AttributeValue.Type.M;
+        return customMappings.getOrDefault(typeName, AttributeValue.Type.M);
     }
 
     boolean isArrayOrCollection(TypeMirror type) {
@@ -126,5 +130,13 @@ class DynamoDBTypeMapper {
                 typeUtils.erasure(type),
                 typeUtils.erasure(elementUtils.getTypeElement("java.util.Set").asType())
         );
+    }
+
+    private Map<String, AttributeValue.Type> buildCustomMappings() {
+        Map<String, AttributeValue.Type> map = new HashMap<>();
+
+        map.put("java.time.Instant", AttributeValue.Type.N);
+
+        return map;
     }
 }
