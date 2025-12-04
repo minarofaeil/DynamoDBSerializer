@@ -62,6 +62,11 @@ This library eliminates that work entirely.
 -   **Zero reflection**\
     All mapping logic is generated, with no runtime inspection.
 
+-   **Zero dependencies**\
+    This library adds no dependencies at all, including itself, to the project.
+    Everything in this library is a compile-time only dependency. Nothing beyond 
+    generated code is added.
+
 -   **No DynamoDB dependencies in domain objects**\
     Only the `@Serialize` annotation is required, and it can be placed
     on:
@@ -174,7 +179,7 @@ includeBuild('/home/myself/workspace/DynamoDBSerializer') {
 ```java
 dependencies {
     ...
-    implementation 'ca.fineapps.util:DynamoDBSerializer'
+    compileOnly 'ca.fineapps.util:DynamoDBSerializer'
     annotationProcessor 'ca.fineapps.util:DynamoDBSerializerProcessor'
     ...
 }

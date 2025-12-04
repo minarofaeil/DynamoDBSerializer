@@ -14,6 +14,7 @@
 
 package ca.fineapps.util.ddb.serializer;
 
+import javax.annotation.processing.Generated;
 import java.lang.reflect.Array;
 import java.util.ArrayList;
 import java.util.List;
@@ -25,6 +26,7 @@ import java.util.function.IntFunction;
 import java.util.function.Supplier;
 import java.util.stream.Collector;
 
+@Generated(value = "ca.fineapps.util.ddb.serializer.DynamoDBSerializerProcessor")
 class ArrayCollector<T, R> implements Collector<T, List<T>, R> {
     private final IntFunction<R> arrayFactory;
 

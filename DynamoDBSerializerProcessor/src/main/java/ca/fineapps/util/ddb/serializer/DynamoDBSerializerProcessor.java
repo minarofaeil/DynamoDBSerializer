@@ -28,11 +28,13 @@ import javax.lang.model.type.TypeMirror;
 import javax.lang.model.util.Types;
 import javax.tools.JavaFileObject;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.Writer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 
@@ -97,6 +99,14 @@ public class DynamoDBSerializerProcessor extends AbstractProcessor {
                 typesToSerialize.stream().map(EquatableTypeMirror::getType).toList()
         );
 
+        if (!typesToSerializeList.isEmpty()) {
+            Map.of(
+                    "ca.fineapps.util.ddb.serializer.ArrayCollector", "/source/java/ArrayCollector.java",
+                    "ca.fineapps.util.ddb.serializer.Collectors", "/source/java/Collectors.java",
+                    "ca.fineapps.util.ddb.serializer.Serializer", "/source/java/Serializer.java"
+            ).forEach(this::copySourceFile);
+        }
+
         for (int i = 0; i < typesToSerializeList.size(); i++) {
             TypeMirror typeMirror = typesToSerializeList.get(i);
 
@@ -134,12 +144,30 @@ public class DynamoDBSerializerProcessor extends AbstractProcessor {
         String packageName = processingEnv.getElementUtils().getPackageOf(type).getQualifiedName().toString();
         Element enclosing = type.getEnclosingElement();
         String enclosingTypeName = enclosing instanceof TypeElement ?
-                ((TypeElement) enclosing).getQualifiedName().toString() : null;
+                enclosing.getSimpleName().toString() : null;
         String className = type.getSimpleName().toString();
 
         String fullyQualifiedName = packageName + "." + (enclosingTypeName != null ? enclosingTypeName + "_" : "") +
                 className;
 
         return processingEnv.getFiler().createSourceFile(fullyQualifiedName + "Serializer");
+    }
+
+    private void copySourceFile(String className, String resourcePath) {
+        try {
+            JavaFileObject sourceFile = processingEnv.getFiler().createSourceFile(className);
+            byte[] buffer = new byte[5120];
+            try (InputStream inputStream = getClass().getResourceAsStream(resourcePath);
+                 Writer writer = sourceFile.openWriter()) {
+                assert inputStream != null;
+
+                int read;
+                while ((read = inputStream.read(buffer)) >= 0) {
+                    writer.write(new String(buffer, 0, read));
+                }
+            }
+        } catch (IOException ex) {
+            processingEnv.getMessager().printError("Failed to generate source file for " + className);
+        }
     }
 }

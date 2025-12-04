@@ -14,9 +14,11 @@
 
 package ca.fineapps.util.ddb.serializer;
 
+import javax.annotation.processing.Generated;
 import java.util.function.IntFunction;
 import java.util.stream.Collector;
 
+@Generated(value = "ca.fineapps.util.ddb.serializer.DynamoDBSerializerProcessor")
 public class Collectors {
     private Collectors() {
     }

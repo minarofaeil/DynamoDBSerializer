@@ -16,6 +16,7 @@ package ca.fineapps.util.ddb.serializer;
 
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
+import javax.annotation.processing.Generated;
 import java.util.Map;
 
 /**
@@ -27,6 +28,7 @@ import java.util.Map;
  *
  * @author Mina Rofaeil
  */
+@Generated(value = "ca.fineapps.util.ddb.serializer.DynamoDBSerializerProcessor")
 public interface Serializer<T> {
 
     /**
