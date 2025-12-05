@@ -2,7 +2,7 @@ plugins {
     id 'java'
 }
 
-group = 'ca.fineapps.games'
+group = 'ca.fineapps.util'
 version = '1.0-SNAPSHOT'
 
 repositories {

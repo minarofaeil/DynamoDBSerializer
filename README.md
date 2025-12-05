@@ -43,11 +43,11 @@ when reflection is problematic, or when classes cannot be modified:
 
     -   Mapping is partly implicit and not validated at compile time.
 
--   **Problematic Collection Deserialization**
+-   **Collection Deserialization is not straight-forward**
 
     -   Because of Java Runtime Type Erasure, a reflection-based solution 
-        cannot know the actual type of collections, potentially populating
-        collections with wrong types.
+        cannot know the actual type of collections. It is not straight-forward
+        to deserialize collections.
 
 ## Why Not Use StaticTableSchema?
 
