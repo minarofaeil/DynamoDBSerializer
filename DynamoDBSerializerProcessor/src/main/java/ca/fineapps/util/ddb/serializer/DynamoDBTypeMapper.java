@@ -16,6 +16,8 @@ package ca.fineapps.util.ddb.serializer;
 
 import software.amazon.awssdk.services.dynamodb.model.AttributeValue;
 
+import javax.lang.model.element.Element;
+import javax.lang.model.element.ElementKind;
 import javax.lang.model.type.ArrayType;
 import javax.lang.model.type.DeclaredType;
 import javax.lang.model.type.TypeKind;
@@ -42,6 +44,10 @@ class DynamoDBTypeMapper {
             return AttributeValue.Type.N;
         }
 
+        if (isEnum(type)) {
+            return AttributeValue.Type.S;
+        }
+
         String typeName = type.toString();
         switch (typeName) {
             case "boolean":
@@ -62,7 +68,7 @@ class DynamoDBTypeMapper {
 
             if (isNumber(entityType)) {
                 return AttributeValue.Type.NS;
-            } else if (isString(entityType)) {
+            } else if (isString(entityType) || isEnum(entityType)) {
                 return AttributeValue.Type.SS;
             } else if (isChar(entityType)) {
                 return AttributeValue.Type.S;
@@ -144,6 +150,11 @@ class DynamoDBTypeMapper {
                 typeUtils.erasure(type),
                 typeUtils.erasure(elementUtils.getTypeElement("java.util.Set").asType())
         );
+    }
+
+    boolean isEnum(TypeMirror type) {
+        Element element = typeUtils.asElement(typeUtils.erasure(type));
+        return element != null && element.getKind() == ElementKind.ENUM;
     }
 
     private Map<String, AttributeValue.Type> buildCustomMappings() {

@@ -20,6 +20,7 @@ import javax.lang.model.element.Element;
 import javax.lang.model.element.ElementKind;
 import javax.lang.model.element.ExecutableElement;
 import javax.lang.model.element.Modifier;
+import javax.lang.model.element.TypeElement;
 import javax.lang.model.element.VariableElement;
 import javax.lang.model.type.TypeKind;
 import javax.lang.model.type.TypeMirror;
@@ -152,7 +153,9 @@ class FieldDeserializer {
             default -> null;
         };
 
-        if (typeMapper.isArray(type)) {
+        if (typeMapper.isEnum(type)) {
+            template = ((TypeElement) typeUtils.asElement(type)).getQualifiedName() + ".valueOf(%s)";
+        } else if (typeMapper.isArray(type)) {
             TypeMirror arrayType = typeMapper.findArrayOrCollectionType(type);
             if (arrayType.toString().equals("byte")) {
                 template = "%s.asByteArray()";
@@ -193,6 +196,9 @@ class FieldDeserializer {
                         "\t\t\t\t\t.map(AttributeValue::m)\n" +
                         "\t\t\t\t\t.map(item -> " + customDeserializer(arrayType, "item") + ")\n" +
                         "\t\t\t\t\t.toArray(" + arrayType + "[]::new)";
+            } else if (typeMapper.isEnum(arrayType)) {
+                template = "%s.stream().map(" + ((TypeElement) typeUtils.asElement(arrayType)).getQualifiedName() + "::valueOf)\n" +
+                        "\t\t\t\t\t.toArray(" + ((TypeElement) typeUtils.asElement(arrayType)).getQualifiedName() + "[]::new)";
             }
         } else if (typeMapper.isCollection(type)) {
             TypeMirror itemType = typeMapper.findArrayOrCollectionType(type);
@@ -219,6 +225,9 @@ class FieldDeserializer {
                 template = "%s.stream()\n" +
                         "\t\t\t\t\t.map(AttributeValue::m)\n" +
                         "\t\t\t\t\t.map(item -> " + customDeserializer(itemType, "item") + ")\n" +
+                        "\t\t\t\t\t." + collector;
+            } else if (typeMapper.isEnum(itemType)) {
+                template = "%s.stream().map(" + ((TypeElement) typeUtils.asElement(itemType)).getQualifiedName() + "::valueOf)\n" +
                         "\t\t\t\t\t." + collector;
             }
         } else if (customDeserializers.containsKey(type.toString()) ||

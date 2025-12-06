@@ -91,7 +91,9 @@ class FieldSerializer {
             default -> null;
         };
 
-        if (typeMapper.isArray(type)) {
+        if (typeMapper.isEnum(type)) {
+            template = "%s.name()";
+        } else if (typeMapper.isArray(type)) {
             TypeMirror arrayType = typeMapper.findArrayOrCollectionType(type);
             if (arrayType.toString().equals("byte")) {
                 template = "SdkBytes.fromByteArray(%s)";
@@ -114,6 +116,8 @@ class FieldSerializer {
                         "\t\t\t\t\t.map(AttributeValue::fromM)\n" +
                         "\t\t\t\t\t.toList()\n" +
                         "\t\t\t";
+            } else if (typeMapper.isEnum(arrayType)) {
+                template = "Arrays.stream(%s).map(" + ((TypeElement) typeUtils.asElement(arrayType)).getQualifiedName() + "::name).toList()";
             }
         } else if (typeMapper.isCollection(type)) {
             TypeMirror itemType = typeMapper.findArrayOrCollectionType(type);
@@ -134,6 +138,8 @@ class FieldSerializer {
                         "\t\t\t\t\t.map(AttributeValue::fromM)\n" +
                         "\t\t\t\t\t.toList()\n" +
                         "\t\t\t";
+            } else if (typeMapper.isEnum(itemType)) {
+                template = "%s.stream().map(" + ((TypeElement) typeUtils.asElement(itemType)).getQualifiedName() + "::name).toList()";
             }
         } else if (customSerializers.containsKey(type.toString()) ||
                 typeMapper.findDynamoDBType(type) == AttributeValue.Type.M) {
