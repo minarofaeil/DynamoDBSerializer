@@ -1,3 +1,5 @@
+[![](https://jitpack.io/v/minarofaeil/DynamoDBSerializer.svg)](https://jitpack.io/#minarofaeil/DynamoDBSerializer)
+
 # POJO/Record-Based DynamoDB Serializer Generator
 
 DynamoDBSerializer library generates **type-safe, reflection-free DynamoDB
@@ -162,25 +164,22 @@ Simply annotate your classes and use the generated serializers.
 
 ## Installation
 
-This library is not published to a maven repo (yet - work-in-progress). Until it is published,
-follow these steps in a gradle project or similar for other setups.
-
-1. Checkout this git repo to a local path, let's say `/home/myself/workspace/DynamoDBSerializer`.
-2. In `settings.gradle` of the root of your project
+1. In `build.gradle` of the root of your project or the module that needs serialization, add the jitpack maven repo.
 ```groovy
-includeBuild('/home/myself/workspace/DynamoDBSerializer') {
-    dependencySubstitution {
-        substitute(module("ca.fineapps.util:DynamoDBSerializer")).using(project(":DynamoDBSerializer"))
-        substitute(module("ca.fineapps.util:DynamoDBSerializerProcessor")).using(project(":DynamoDBSerializerProcessor"))
-    }
+repositories {
+    mavenCentral()
+    ...
+    maven { url = 'https://jitpack.io' }
+    ...
 }
 ```
-3. In `build.gradle` of the project that needs serialization
+2. In `build.gradle` of the module that needs serialization
 ```java
 dependencies {
     ...
-    compileOnly 'ca.fineapps.util:DynamoDBSerializer'
-    annotationProcessor 'ca.fineapps.util:DynamoDBSerializerProcessor'
+    // "768974e2bf" is commit ID. Use it or the most recent one from the jitpack logo above or from this repo.
+    compileOnly 'com.github.minarofaeil.DynamoDBSerializer:DynamoDBSerializer:768974e2bf'
+    annotationProcessor 'com.github.minarofaeil.DynamoDBSerializer:DynamoDBSerializerProcessor:768974e2bf'
     ...
 }
 ```
