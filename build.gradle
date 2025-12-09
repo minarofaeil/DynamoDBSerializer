@@ -1,4 +1,7 @@
 allprojects {
+    group = "com.github.minarofaeil.DynamoDBSerializer"
+    version = "1.0-SNAPSHOT"
+
     repositories {
         mavenCentral()
     }

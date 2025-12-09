@@ -1,9 +1,7 @@
 plugins {
     id 'java'
+    id 'maven-publish'
 }
-
-group = 'ca.fineapps.util'
-version = '1.0-SNAPSHOT'
 
 repositories {
     mavenCentral()
@@ -12,4 +10,12 @@ repositories {
 dependencies {
     implementation project(':DynamoDBSerializer')
     implementation 'software.amazon.awssdk:dynamodb:2.30.25'
+}
+
+publishing {
+    publications {
+        create("mavenJava", MavenPublication) {
+            from components.java
+        }
+    }
 }
